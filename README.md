@@ -1,97 +1,56 @@
-# Prestige Inmedia — Hostinger edition
+# Prestige Inmedia — Node.js edition
 
-The approved electric-blue website, with white text, lime accents, glass graphics and local Lucide icons. Built with HTML, CSS, JavaScript and PHP 8.2+ / MySQL. No Node.js build or VPS is required on the hosting account.
+The approved blue-and-glass agency website with a Node.js backend and MySQL persistence.
 
-## What works
+## Hostinger deployment settings
 
-- Responsive public website, service selector, concept gallery and service enquiry forms.
-- Client registration, sign in and sign out using server sessions.
-- Persistent brand profiles and separate client workspaces.
-- Graphic design, social media, video and ads production requests.
-- Request status, delivery links, approval and revision feedback.
-- Agency administrator: manage all brands, requests and incoming enquiries; deliver creative work manually.
-- Signed automation webhook dispatcher, protected result callback and PHP cron worker.
+| Setting | Value |
+| --- | --- |
+| Repository | prestigebatamid-spec/prestige-inmedia |
+| Branch | main |
+| Node.js | 24.x |
+| Framework | Other / Node.js |
+| Root directory | . (repository root) |
+| Install | npm ci |
+| Build | npm run build |
+| Start | npm start |
+| Entry file | server.js |
+| Output directory | Leave blank for this server application |
 
-## Deploy on Hostinger
+Keep the whole repository together. The server serves only public_html and protects application source/configuration by never exposing the repository root. No manual folder movement is needed.
 
-Use **Custom PHP/HTML hosting**. This package does not run inside Hostinger Website Builder.
+## Environment variables
 
-1. Add your domain or temporary domain as a PHP/HTML website in hPanel. Enable SSL and select PHP **8.2 or newer** with `pdo_mysql` and `curl`.
-2. Create an **empty MySQL database and user** in Databases → Management. Keep the full database name, username and password.
-3. Upload the contents of `public_html/` into your website's `public_html/` directory. `index.html` must sit directly inside it. Back up any existing website before replacing its files. Remove a competing default index file only on the new, empty website.
-4. Put the `prestige-private/` folder **beside** `public_html/`, at the same directory level. Use File Manager → Access all files if needed. Do not place it inside `public_html`.
-5. Copy `prestige-private/config.example.php` to `prestige-private/config.php`. Fill in your domain and database values. Replace both `CHANGE_...` strings with **different, random secrets of at least 32 characters**. Keep the automation values blank for now.
-6. Visit your domain with `/#setup` at the end. Enter your setup token, administrator name, email and a password of at least 12 characters. The database tables are created automatically. The installer locks after the first administrator is created.
-7. Sign out and create a test client account. Add a brand, submit a request, then sign in as the administrator to deliver it. Confirm the client can review and approve it.
+Set these in Hostinger before launching:
 
-Example directory layout:
+- NODE_ENV=production
+- APP_URL=https://your-domain.com
+- APP_SECRET: unique random value with at least 32 characters
+- SETUP_TOKEN: a different unique random value with at least 32 characters
+- DB_HOST, DB_PORT (3306), DB_NAME, DB_USER, DB_PASSWORD: your Hostinger MySQL credentials
 
-```text
-domains/your-domain.com/
-  public_html/
-    index.html
-    .htaccess
-    assets/
-    api/index.php
-  prestige-private/
-    config.php             (you create this)
-    bootstrap.php
-    worker.php
-    admin-cli.php
-    config.example.php
-    .htaccess
-```
+The platform supplies PORT. No API keys or passwords belong in GitHub. See .env.example for the full variable list. Variables are read from process.env; a local .env file is not loaded automatically.
 
-The same layout works with Hostinger's `/home/USER/public_html` directory structure. If a provider requires a different location, set the `PRESTIGE_PRIVATE` environment variable to the private directory path.
+Create an empty MySQL database and user in Hostinger. On first startup the application creates its tables. Visit /#setup to create your administrator account using SETUP_TOKEN. After setup, client registration and agency access are available from Client login.
 
-## Administrator access
+The public website can start without database variables, but the portal will clearly report that setup is required. Production requires APP_SECRET.
 
-Use the email and password you created at `/#setup`. No default credentials are included.
+## Features
 
-In **Client login**, the administrator sees Brand profiles, All requests, New request, Enquiries and Connections. A normal client only sees their own brands and requests.
+Client accounts and server-side sessions; isolated brand profiles; design, social, video and ads requests; enquiry inbox; manual agency delivery; client approval and revisions; signed automation dispatch and protected callbacks. Passwords use scrypt and sessions are persisted in the database. Requests require CSRF tokens; production cookies are Secure and HttpOnly.
 
-If an administrator needs to reset a password, use SSH:
+## Automatic production
 
-```bash
-php /absolute/path/prestige-private/admin-cli.php reset-password person@example.com
-```
+Set AUTOMATION_WEBHOOK_URL, AUTOMATION_WEBHOOK_SECRET and AUTOMATION_CALLBACK_SECRET to connect your own Claude/Canva production service. Secrets must be at least 32 characters and endpoint URLs must be HTTPS. A worker inside the running Node application checks the queue every minute; no PHP cron job is needed. Failed requests require explicit agency retry.
 
-The password is entered privately; do not put it in the command itself.
+AUTOMATION.md describes the payload contract. The callback route is /api?action=callback. Review is required before approval. This website does not itself provide a running Claude/Canva service, video renderer, social publishing or ad execution.
 
-## Connect automatic production
+## Local development and checks
 
-The website is ready to hand off jobs, but **Claude, Canva, social publishing, paid ad execution and video rendering are not connected by default**. The host website does not pretend to generate designs or publish posts.
+Node 24 recommended. Run npm ci, then DB_DRIVER=sqlite npm start for local development with a local SQLite database in data/. Production uses MySQL so state survives redeploys. Run npm test and npm run build.
 
-1. Set up a server workflow (for example your own agent service or n8n) with Claude and authenticated Canva access. Use the contract in `AUTOMATION.md`.
-2. Set `automation.webhook_url` to its HTTPS endpoint. Set distinct random `webhook_secret` and `callback_secret` values of at least 32 characters. Store the matching secrets in the workflow.
-3. In hPanel → Advanced → Cron Jobs, choose **PHP**, point to the full path of `prestige-private/worker.php` and run it every five minutes. A five-minute schedule is `*/5 * * * *` in a custom cron interface.
-4. Sign in as administrator. Open existing **Saved for production** requests and choose **Queue for workflow**. New requests are queued automatically when a connection is configured.
-5. Confirm a test request moves from Queued → In production → Ready for review.
+Use a new database when moving from the earlier PHP prototype: PHP password hashes cannot be used by this Node release. Existing populated PHP databases require a separate migration; do not point this release at one without a migration plan.
 
-Enabling the connection is configuration, not a guarantee that the receiving workflow is healthy. Check cron output and each request's timeline. The worker sends up to five requests per run. It does not automatically retry failed jobs, avoiding duplicate paid generations.
+Keep database backups. Enquiries are stored in the admin inbox; email notifications and email password recovery are not configured. Administrative password recovery can be arranged through a controlled database maintenance process; no public reset endpoint is supplied.
 
-## Current boundaries
-
-- Enquiries are stored in the agency dashboard. This release does not send email notifications.
-- Production assets are shared as links, not uploaded to the web server.
-- Publishing and campaign spend require separate connected platform credentials and workflow implementation. Approval here means creative approval; it does not launch an ad or publish a post.
-- AI generation charges, Canva plans, ad spend and other provider subscriptions are separate.
-- Password recovery is managed by the agency through the CLI, rather than an email reset service.
-- The first release loads up to 200 recent requests and enquiries in the dashboard.
-- Screenshots and sample campaign graphics are illustrative; they are not represented as past client work.
-
-## Maintenance
-
-Back up the MySQL database and private configuration. Use HTTPS. Keep PHP current. When updating, replace the public source and private application code while preserving `config.php` and your database. Test an update on a temporary domain first.
-
-## Package source
-
-- `public_html/`: deployable public files.
-- `prestige-private/`: server code and private configuration template.
-- `AUTOMATION.md`: production workflow and callback contract.
-- `DEPLOY-CHECKLIST.md`: quick deployment check.
-- `tests/`: local regression tests; never upload this directory into `public_html`.
-
-Icons: Lucide, ISC license, included in `public_html/assets/LUCIDE-LICENSE.txt`. Google Fonts are loaded from their font CDN; all UI logic and icons are hosted locally.
-
-Hostinger references: https://www.hostinger.com/support/4548688-basic-actions-in-the-file-manager-in-hostinger/ and https://www.hostinger.com/support/1583465-how-to-set-up-a-cron-job-at-hostinger/
+Icons: Lucide, ISC license included in public_html/assets/LUCIDE-LICENSE.txt. Gallery content is illustrative.

@@ -1,0 +1,1 @@
+{"name":"prestige-inmedia","version":"2.0.0","private":true,"type":"module","engines":{"node":">=22.13.0"},"scripts":{"start":"node server.js","build":"node --check server.js && node --check public_html/assets/app.js","test":"node --test tests/node.test.js"},"dependencies":{"mysql2":"^3.15.0"}}

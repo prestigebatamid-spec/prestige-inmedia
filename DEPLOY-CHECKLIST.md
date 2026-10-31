@@ -1,19 +1,10 @@
-# Hostinger launch check
+# Node.js launch checklist
 
-- [ ] New Custom PHP/HTML website selected; existing files backed up.
-- [ ] SSL active, PHP 8.2+, PDO MySQL and cURL available.
-- [ ] Public files extracted directly into public_html.
-- [ ] prestige-private sits beside public_html.
-- [ ] config.php contains the correct domain, database credentials and unique secrets.
-- [ ] Administrator created through /#setup; no default password.
-- [ ] Client signup, login and logout tested.
-- [ ] Two test clients cannot see each other's brands or requests.
-- [ ] Website enquiry appears in the admin dashboard.
-- [ ] Brand profile saves after refreshing the page.
-- [ ] Client request reaches the agency dashboard.
-- [ ] Manual delivery, revision and approval tested.
-- [ ] Text on blue backgrounds is white; phone layout checked.
-- [ ] If automation is enabled: webhook configured, signatures verified, cron enabled, real callback tested.
-- [ ] MySQL backup configured and config.php stored securely.
-
-Not deployed by this package: third-party account connections, automatic posting, ad spend, email notifications or a running video renderer.
+- Import main from GitHub using Hostinger Node.js hosting.
+- Node 24; root .; build npm run build; start npm start; entry server.js.
+- Set production environment variables listed in README.md.
+- Create a new MySQL database; check the connection in deployment logs.
+- Enable HTTPS and open /#setup to create the administrator.
+- Test client signup, brand save, request submission, admin delivery and approval.
+- Configure automation secrets and endpoint only when your workflow is ready.
+- Back up the database. Keep secrets outside GitHub.

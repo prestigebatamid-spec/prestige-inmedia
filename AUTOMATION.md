@@ -34,7 +34,7 @@ Compute the hex digest as HMAC-SHA256 of `timestamp + "." + raw_request_body` us
   "schema_version": 1,
   "job_id": "<32-character job id>",
   "dispatch_token": "<opaque dispatch token>",
-  "callback_url": "https://your-domain.com/api/index.php?action=callback",
+  "callback_url": "https://your-domain.com/api?action=callback",
   "brand": {
     "id": "<brand id>",
     "name": "Client brand",
@@ -92,7 +92,7 @@ On failure, use `status: "failed"` with an appropriate result summary. Deliverie
 | State | Meaning |
 | --- | --- |
 | awaiting_connection | Request saved for agency production; no automatic connection configured |
-| queued | Waiting for the cron worker |
+| queued | Waiting for the Node.js worker |
 | dispatching | Worker is sending the request |
 | processing | Receiving workflow accepted the job |
 | review | Deliverable is ready for the client |
