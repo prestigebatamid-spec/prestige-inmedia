@@ -1,0 +1,18 @@
+# Server credentials and local runtime data
+prestige-private/config.php
+*.env
+.env*
+!*.env.example
+*.sqlite
+*.sqlite-*
+*.db
+*.log
+*.lock
+*.zip
+.DS_Store
+# Local preview and test state
+.openai/
+node_modules/
+__pycache__/
+.pytest_cache/
+public_html/qa-*.html
