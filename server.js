@@ -4,16 +4,21 @@ import {readFile,mkdir} from 'node:fs/promises';
 import path from 'node:path';
 import {fileURLToPath} from 'node:url';
 const root=path.dirname(fileURLToPath(import.meta.url)),pub=path.join(root,'public_html');
-const env=process.env,production=env.NODE_ENV==='production',secret=env.APP_SECRET||(!production?randomBytes(32).toString('hex'):'');
-if(secret.length<32||secret.startsWith('replace-'))throw Error('Set a random APP_SECRET of at least 32 characters.');
+const env=process.env,production=!['development','test'].includes(env.NODE_ENV);
+const validSecret=v=>typeof v==='string'&&v.length>=32&&!/^(replace-|change_)/i.test(v);
+// Public pages can deploy before private backend configuration is supplied.
+// An ephemeral key is used only in explicit development/test mode or while
+// backend access is disabled. Production database access requires APP_SECRET.
+const appSecretReady=validSecret(env.APP_SECRET),secret=appSecretReady?env.APP_SECRET:randomBytes(32).toString('hex');
 const id=()=>randomBytes(16).toString('hex'),now=()=>new Date().toISOString().slice(0,19).replace('T',' ');
-const equal=(a,b)=>typeof a==='string'&&typeof b==='string'&&a.length===b.length&&timingSafeEqual(Buffer.from(a),Buffer.from(b));
+const equal=(a,b)=>{if(typeof a!=='string'||typeof b!=='string')return false;const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);};
 const hash=p=>{const salt=id();return salt+':'+scryptSync(p,salt,64).toString('hex');};
 const verify=(p,h)=>{try{const [salt,digest]=h.split(':');return equal(scryptSync(p,salt,64).toString('hex'),digest);}catch{return false;}};
 let connection;
 async function q(sql,args=[]){if(connection.sqlite){const statement=connection.sqlite.prepare(sql);return /^\s*(SELECT|PRAGMA)/i.test(sql)?statement.all(...args):statement.run(...args);}const [rows]=await connection.mysql.execute(sql,args);return rows;}
 async function init(){
- if(env.DB_DRIVER==='sqlite'||(!production&&!env.DB_HOST)){await mkdir(path.dirname(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite')),{recursive:true});const {DatabaseSync}=await import('node:sqlite');connection={sqlite:new DatabaseSync(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite'))};}
+ if(production&&!appSecretReady)return;
+ if(!production&&env.DB_DRIVER==='sqlite'){await mkdir(path.dirname(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite')),{recursive:true});const {DatabaseSync}=await import('node:sqlite');connection={sqlite:new DatabaseSync(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite'))};}
  else if(env.DB_HOST&&env.DB_NAME&&env.DB_USER){const mysql=await import('mysql2/promise');connection={mysql:mysql.createPool({host:env.DB_HOST,port:Number(env.DB_PORT||3306),database:env.DB_NAME,user:env.DB_USER,password:env.DB_PASSWORD||'',connectionLimit:5})};}
  else return;
  const tables=[
@@ -33,7 +38,7 @@ const email=d=>{const v=text(d,'email',190).toLowerCase();if(!/^[^\s@]+@[^\s@]+\
 const validURL=(v,https=false)=>{try{return (https?['https:']:['http:','https:']).includes(new URL(v).protocol);}catch{return false;}};
 const publicUser=u=>u?{id:u.id,name:u.name,email:u.email,role:u.role}:null;
 const event=async(j,m)=>q('INSERT INTO job_events(id,job_id,message,created_at) VALUES(?,?,?,?)',[id(),j,m,now()]);
-const ready=()=>validURL(env.AUTOMATION_WEBHOOK_URL,true)&&(env.AUTOMATION_WEBHOOK_SECRET||'').length>=32&&(env.AUTOMATION_CALLBACK_SECRET||'').length>=32;
+const ready=()=>validURL(env.APP_URL,true)&&validURL(env.AUTOMATION_WEBHOOK_URL,true)&&validSecret(env.AUTOMATION_WEBHOOK_SECRET)&&validSecret(env.AUTOMATION_CALLBACK_SECRET);
 const installed=async()=>!!(await q("SELECT id FROM users WHERE role='admin' LIMIT 1"))[0];
 async function session(req,res){const cookie=(req.headers.cookie||'').match(/(?:^|;\s*)prestige_session=([a-f0-9]{64})(?:;|$)/)?.[1];let s=cookie?(await q('SELECT * FROM sessions WHERE id=? AND expires_at>?',[cookie,Date.now()]))[0]:null;if(!s){s={id:randomBytes(32).toString('hex'),csrf:randomBytes(32).toString('hex'),user_id:null};await q('INSERT INTO sessions(id,user_id,csrf,expires_at) VALUES(?,?,?,?)',[s.id,null,s.csrf,Date.now()+86400000]);res.setHeader('Set-Cookie',`prestige_session=${s.id}; Path=/; HttpOnly; SameSite=Strict${production?'; Secure':''}`);}return s;}
 async function rotate(s,res,user=null){await q('DELETE FROM sessions WHERE id=?',[s.id]);const fresh={id:randomBytes(32).toString('hex'),csrf:s.csrf,user_id:user};await q('INSERT INTO sessions(id,user_id,csrf,expires_at) VALUES(?,?,?,?)',[fresh.id,user,fresh.csrf,Date.now()+86400000]);res.setHeader('Set-Cookie',`prestige_session=${fresh.id}; Path=/; HttpOnly; SameSite=Strict${production?'; Secure':''}`);return fresh;}
@@ -43,7 +48,7 @@ async function api(req,res,url){
  const action=url.searchParams.get('action')||'bootstrap';let d={};
  if(!['GET','POST'].includes(req.method))fail('Method not allowed.',405);
  if(req.method==='POST'){let raw='';for await(const chunk of req){raw+=chunk;if(Buffer.byteLength(raw)>65536)fail('Request too large.',413);}try{d=JSON.parse(raw||'{}');}catch{fail('Invalid JSON.');}if(!d||Array.isArray(d)||typeof d!=='object')fail('Invalid request.');}
- if(!connection){if(action==='bootstrap')return {configured:false,installed:false,user:null,csrf:'',automation:false};fail('Set database environment variables in Hostinger first.',503);}
+ if(!connection){if(action==='bootstrap')return {configured:false,installed:false,user:null,csrf:'',automation:false};fail('Client services are not available yet. Please contact Prestige Inmedia.',503);}
  let s=await session(req,res),u=s.user_id?(await q('SELECT * FROM users WHERE id=?',[s.user_id]))[0]:null;
  if(action==='bootstrap'&&req.method==='GET')return {configured:true,installed:await installed(),user:publicUser(u),csrf:s.csrf,automation:ready()};
  const post=()=>{if(req.method!=='POST')fail('Method not allowed.',405);};
@@ -65,9 +70,14 @@ async function api(req,res,url){
 function validateResult(r){if(!r||typeof r!=='object'||Array.isArray(r))fail('Invalid result.');for(const k of ['canva_url','download_url'])if(r[k]&&!validURL(r[k],true))fail('Deliverable links must use HTTPS.');return r;}
 let working=false;
 async function worker(){if(!connection||!ready()||working)return;working=true;try{await q("UPDATE jobs SET status='failed',updated_at=? WHERE status='dispatching' AND updated_at<?",[now(),new Date(Date.now()-1800000).toISOString().slice(0,19).replace('T',' ')]);for(const j of await q("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 5")){const token=randomBytes(32).toString('hex');const result=await q("UPDATE jobs SET status='dispatching',dispatch_token=?,updated_at=? WHERE id=? AND status='queued'",[token,now(),j.id]);if(!Number(result.changes??result.affectedRows))continue;const b=(await q('SELECT * FROM brands WHERE id=?',[j.brand_id]))[0];delete b.user_id;const payload={schema_version:1,job_id:j.id,dispatch_token:token,callback_url:env.APP_URL.replace(/\/$/,'')+'/api?action=callback',brand:b,request:{type:j.type,title:j.title,brief:j.brief,format:j.format,revision:j.revision},review_required:true};const raw=JSON.stringify(payload),timestamp=String(Math.floor(Date.now()/1000));try{const res=await fetch(env.AUTOMATION_WEBHOOK_URL,{method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),headers:{'Content-Type':'application/json','X-Prestige-Timestamp':timestamp,'X-Prestige-Signature':'sha256='+createHmac('sha256',env.AUTOMATION_WEBHOOK_SECRET).update(timestamp+'.'+raw).digest('hex'),'Idempotency-Key':token},body:raw});await q("UPDATE jobs SET status=? WHERE id=? AND status='dispatching'",[res.ok?'processing':'failed',j.id]);await event(j.id,res.ok?'Workflow accepted the request.':'Workflow dispatch failed.');}catch{await q("UPDATE jobs SET status='failed' WHERE id=? AND status='dispatching'",[j.id]);}}await q('DELETE FROM sessions WHERE expires_at<?',[Date.now()]);}catch(e){console.error('Worker error:',e.code||e.message);}finally{working=false;}}
-await init();
+try{await init();}catch(e){
+ if(connection?.mysql)await connection.mysql.end().catch(()=>{});
+ connection=undefined;
+ console.error('Backend setup is pending. Check database settings in Hostinger.',e.code||'DATABASE_INIT_FAILED');
+}
+if(!connection)console.log('Public website ready. Client services will become available after server configuration and redeployment.');
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer(async(req,res)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','SAMEORIGIN');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');try{const url=new URL(req.url,'http://localhost');if(url.pathname==='/api'||url.pathname==='/api/index.php'){res.setHeader('Cache-Control','no-store');const value=await api(req,res,url);res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));return;}if(!['GET','HEAD'].includes(req.method))fail('Method not allowed.',405);const name=decodeURIComponent(url.pathname);if(name.split('/').some(p=>p.startsWith('.')||p==='..')||name.endsWith('.php'))fail('Not found.',404);const file=path.resolve(pub,'.'+(name==='/'?'/index.html':name));if(!file.startsWith(pub+path.sep))fail('Not found.',404);const bytes=await readFile(file);res.setHeader('Content-Type',mime[path.extname(file)]||'application/octet-stream');res.end(req.method==='HEAD'?undefined:bytes);}catch(e){res.statusCode=e.status||(e.code==='ENOENT'?404:500);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:e.status?e.message:res.statusCode===404?'Not found.':'Unable to complete request.'}));if(res.statusCode===500)console.error(e.code||e.message);}});
 server.listen(Number(env.PORT||3000),'0.0.0.0',()=>console.log('Prestige Inmedia listening on port '+(env.PORT||3000)));
-if(ready()){if(!validURL(env.APP_URL,true))throw Error('APP_URL must use HTTPS for automation.');setInterval(worker,60000).unref();worker();}
+if(connection&&ready()){setInterval(worker,60000).unref();worker();}
 process.on('SIGTERM',()=>server.close(()=>process.exit(0)));

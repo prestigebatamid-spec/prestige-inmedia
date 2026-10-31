@@ -4,6 +4,21 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+test('Blank deployment settings keep the public site running and backend closed',async()=>{
+ for(const mode of ['', 'production']){
+  const dir=await mkdtemp(path.join(os.tmpdir(),'prestige-empty-')),port=30000+Math.floor(Math.random()*10000),origin='http://127.0.0.1:'+port;
+  const child=spawn(process.execPath,['server.js'],{env:{...process.env,PORT:String(port),NODE_ENV:mode,APP_SECRET:'',SETUP_TOKEN:'',DB_HOST:'',DB_NAME:'',DB_USER:'',DB_PASSWORD:'',DB_DRIVER:'',SQLITE_PATH:path.join(dir,'unused.sqlite'),AUTOMATION_WEBHOOK_URL:'',AUTOMATION_WEBHOOK_SECRET:'',AUTOMATION_CALLBACK_SECRET:''}});
+  try{
+   await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',c=>{output+=c;if(output.includes('listening on port'))resolve();});child.once('exit',()=>reject(Error('Server did not start')));setTimeout(()=>reject(Error('Startup timeout')),10000).unref();});
+   assert.equal((await fetch(origin+'/')).status,200);
+   assert.equal((await fetch(origin+'/assets/app.js')).status,200);
+   const bootstrap=await (await fetch(origin+'/api?action=bootstrap')).json();
+   assert.equal(bootstrap.configured,false);assert.equal(bootstrap.installed,false);assert.equal(bootstrap.automation,false);assert.equal(bootstrap.user,null);
+   const register=await fetch(origin+'/api?action=register',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:'Visitor',email:'visitor@example.test',password:'Visitor-password-123'})});assert.equal(register.status,503);
+   const {stat}=await import('node:fs/promises');await assert.rejects(stat(path.join(dir,'unused.sqlite')),e=>e.code==='ENOENT');
+  }finally{child.kill();await new Promise(r=>child.once('exit',r));await rm(dir,{recursive:true,force:true});}
+ }
+});
 test('Node client and agency workflow',async()=>{
  const dir=await mkdtemp(path.join(os.tmpdir(),'prestige-node-')),port=19000+Math.floor(Math.random()*10000),origin='http://127.0.0.1:'+port;
  const child=spawn(process.execPath,['server.js'],{env:{...process.env,PORT:String(port),NODE_ENV:'test',DB_DRIVER:'sqlite',SQLITE_PATH:path.join(dir,'db.sqlite'),SETUP_TOKEN:'s'.repeat(40)}});

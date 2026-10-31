@@ -21,7 +21,9 @@ Keep the whole repository together. The server serves only public_html and prote
 
 ## Environment variables
 
-Set these in Hostinger before launching:
+You can leave all custom environment fields blank for the first deployment. The public website will load; client accounts and enquiry storage remain closed until configured. See ENVIRONMENT.md for the exact values to add later.
+
+To activate the backend, set:
 
 - NODE_ENV=production
 - APP_URL=https://your-domain.com
@@ -33,7 +35,7 @@ The platform supplies PORT. No API keys or passwords belong in GitHub. See .env.
 
 Create an empty MySQL database and user in Hostinger. On first startup the application creates its tables. Visit /#setup to create your administrator account using SETUP_TOKEN. After setup, client registration and agency access are available from Client login.
 
-The public website can start without database variables, but the portal will clearly report that setup is required. Production requires APP_SECRET.
+The public website starts with empty settings, including an empty NODE_ENV or APP_SECRET. Production backend access requires a valid APP_SECRET and MySQL connection. Database configuration failures leave the public pages available and are reported in server logs.
 
 ## Features
 
@@ -47,7 +49,7 @@ AUTOMATION.md describes the payload contract. The callback route is /api?action=
 
 ## Local development and checks
 
-Node 24 recommended. Run npm ci, then DB_DRIVER=sqlite npm start for local development with a local SQLite database in data/. Production uses MySQL so state survives redeploys. Run npm test and npm run build.
+Node 24 recommended. Run npm ci, then NODE_ENV=development DB_DRIVER=sqlite npm start for local development with a local SQLite database in data/. Production uses MySQL so state survives redeploys. Run npm test and npm run build.
 
 Use a new database when moving from the earlier PHP prototype: PHP password hashes cannot be used by this Node release. Existing populated PHP databases require a separate migration; do not point this release at one without a migration plan.
 
