@@ -56,3 +56,9 @@ Use a new database when moving from the earlier PHP prototype: PHP password hash
 Keep database backups. Enquiries are stored in the admin inbox; email notifications and email password recovery are not configured. Administrative password recovery can be arranged through a controlled database maintenance process; no public reset endpoint is supplied.
 
 Icons: Lucide, ISC license included in public_html/assets/LUCIDE-LICENSE.txt. Gallery content is illustrative.
+
+## If Hostinger displays 503
+
+Redeploy the latest main branch with Node 24, root `.`, entry `server.js`, build `npm run build`, and start `npm start`. Then restart this website in Hostinger. The entry module supports both direct execution and launchers that use require().
+
+If the error remains, inspect Website dashboard → Runtime logs and the latest deployment's build log. Share the application error lines and live URL for diagnosis. Resource limits, a stale deployment or incorrect entry/output settings can also cause 503; the error page alone does not identify the cause. Startup logs report the listener and Node version without printing credentials.

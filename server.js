@@ -19,7 +19,7 @@ async function q(sql,args=[]){if(connection.sqlite){const statement=connection.s
 async function init(){
  if(production&&!appSecretReady)return;
  if(!production&&env.DB_DRIVER==='sqlite'){await mkdir(path.dirname(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite')),{recursive:true});const {DatabaseSync}=await import('node:sqlite');connection={sqlite:new DatabaseSync(env.SQLITE_PATH||path.join(root,'data/prestige.sqlite'))};}
- else if(env.DB_HOST&&env.DB_NAME&&env.DB_USER){const mysql=await import('mysql2/promise');connection={mysql:mysql.createPool({host:env.DB_HOST,port:Number(env.DB_PORT||3306),database:env.DB_NAME,user:env.DB_USER,password:env.DB_PASSWORD||'',connectionLimit:5})};}
+ else if(env.DB_HOST&&env.DB_NAME&&env.DB_USER){const mysql=await import('mysql2/promise');connection={mysql:mysql.createPool({host:env.DB_HOST,port:Number(env.DB_PORT||3306),database:env.DB_NAME,user:env.DB_USER,password:env.DB_PASSWORD||'',connectionLimit:5,connectTimeout:10000})};}
  else return;
  const tables=[
  'users (id VARCHAR(32) PRIMARY KEY,name VARCHAR(120) NOT NULL,email VARCHAR(190) NOT NULL UNIQUE,password_hash VARCHAR(255) NOT NULL,role VARCHAR(20) NOT NULL,created_at VARCHAR(19) NOT NULL)',
@@ -70,6 +70,8 @@ async function api(req,res,url){
 function validateResult(r){if(!r||typeof r!=='object'||Array.isArray(r))fail('Invalid result.');for(const k of ['canva_url','download_url'])if(r[k]&&!validURL(r[k],true))fail('Deliverable links must use HTTPS.');return r;}
 let working=false;
 async function worker(){if(!connection||!ready()||working)return;working=true;try{await q("UPDATE jobs SET status='failed',updated_at=? WHERE status='dispatching' AND updated_at<?",[now(),new Date(Date.now()-1800000).toISOString().slice(0,19).replace('T',' ')]);for(const j of await q("SELECT * FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 5")){const token=randomBytes(32).toString('hex');const result=await q("UPDATE jobs SET status='dispatching',dispatch_token=?,updated_at=? WHERE id=? AND status='queued'",[token,now(),j.id]);if(!Number(result.changes??result.affectedRows))continue;const b=(await q('SELECT * FROM brands WHERE id=?',[j.brand_id]))[0];delete b.user_id;const payload={schema_version:1,job_id:j.id,dispatch_token:token,callback_url:env.APP_URL.replace(/\/$/,'')+'/api?action=callback',brand:b,request:{type:j.type,title:j.title,brief:j.brief,format:j.format,revision:j.revision},review_required:true};const raw=JSON.stringify(payload),timestamp=String(Math.floor(Date.now()/1000));try{const res=await fetch(env.AUTOMATION_WEBHOOK_URL,{method:'POST',redirect:'error',signal:AbortSignal.timeout(30000),headers:{'Content-Type':'application/json','X-Prestige-Timestamp':timestamp,'X-Prestige-Signature':'sha256='+createHmac('sha256',env.AUTOMATION_WEBHOOK_SECRET).update(timestamp+'.'+raw).digest('hex'),'Idempotency-Key':token},body:raw});await q("UPDATE jobs SET status=? WHERE id=? AND status='dispatching'",[res.ok?'processing':'failed',j.id]);await event(j.id,res.ok?'Workflow accepted the request.':'Workflow dispatch failed.');}catch{await q("UPDATE jobs SET status='failed' WHERE id=? AND status='dispatching'",[j.id]);}}await q('DELETE FROM sessions WHERE expires_at<?',[Date.now()]);}catch(e){console.error('Worker error:',e.code||e.message);}finally{working=false;}}
+// Keep the module graph synchronous for hosting launchers that use require().
+async function start(){
 try{await init();}catch(e){
  if(connection?.mysql)await connection.mysql.end().catch(()=>{});
  connection=undefined;
@@ -78,6 +80,12 @@ try{await init();}catch(e){
 if(!connection)console.log('Public website ready. Client services will become available after server configuration and redeployment.');
 const mime={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.svg':'image/svg+xml','.txt':'text/plain; charset=utf-8'};
 const server=http.createServer(async(req,res)=>{res.setHeader('X-Content-Type-Options','nosniff');res.setHeader('X-Frame-Options','SAMEORIGIN');res.setHeader('Referrer-Policy','strict-origin-when-cross-origin');try{const url=new URL(req.url,'http://localhost');if(url.pathname==='/api'||url.pathname==='/api/index.php'){res.setHeader('Cache-Control','no-store');const value=await api(req,res,url);res.setHeader('Content-Type','application/json');res.end(JSON.stringify(value));return;}if(!['GET','HEAD'].includes(req.method))fail('Method not allowed.',405);const name=decodeURIComponent(url.pathname);if(name.split('/').some(p=>p.startsWith('.')||p==='..')||name.endsWith('.php'))fail('Not found.',404);const file=path.resolve(pub,'.'+(name==='/'?'/index.html':name));if(!file.startsWith(pub+path.sep))fail('Not found.',404);const bytes=await readFile(file);res.setHeader('Content-Type',mime[path.extname(file)]||'application/octet-stream');res.end(req.method==='HEAD'?undefined:bytes);}catch(e){res.statusCode=e.status||(e.code==='ENOENT'?404:500);res.setHeader('Content-Type','application/json');res.end(JSON.stringify({error:e.status?e.message:res.statusCode===404?'Not found.':'Unable to complete request.'}));if(res.statusCode===500)console.error(e.code||e.message);}});
-server.listen(Number(env.PORT||3000),'0.0.0.0',()=>console.log('Prestige Inmedia listening on port '+(env.PORT||3000)));
+const portSetting=env.PORT?.trim();
+const target=portSetting?(/^\d+$/.test(portSetting)?Number(portSetting):portSetting):3000;
+server.on('error',e=>{console.error('Prestige Inmedia listener failed:',e.code||e.message);process.exit(1);});
+if(typeof target==='number')server.listen(target,'0.0.0.0',()=>console.log('Prestige Inmedia listening on port '+target+'; Node '+process.version));
+else server.listen(target,()=>console.log('Prestige Inmedia listening on hosting socket; Node '+process.version));
 if(connection&&ready()){setInterval(worker,60000).unref();worker();}
 process.on('SIGTERM',()=>server.close(()=>process.exit(0)));
+}
+start().catch(e=>{console.error('Prestige Inmedia startup failed:',e.code||e.message);process.exit(1);});

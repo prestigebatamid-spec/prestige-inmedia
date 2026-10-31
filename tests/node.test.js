@@ -4,10 +4,11 @@ import {spawn} from 'node:child_process';
 import {mkdtemp,rm} from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-test('Blank deployment settings keep the public site running and backend closed',async()=>{
- for(const mode of ['', 'production']){
+test('Blank settings work with direct and hosted require() launchers',async()=>{
+ for(const [mode,loader] of [['','direct'],['production','direct'],['production','require']]){
   const dir=await mkdtemp(path.join(os.tmpdir(),'prestige-empty-')),port=30000+Math.floor(Math.random()*10000),origin='http://127.0.0.1:'+port;
-  const child=spawn(process.execPath,['server.js'],{env:{...process.env,PORT:String(port),NODE_ENV:mode,APP_SECRET:'',SETUP_TOKEN:'',DB_HOST:'',DB_NAME:'',DB_USER:'',DB_PASSWORD:'',DB_DRIVER:'',SQLITE_PATH:path.join(dir,'unused.sqlite'),AUTOMATION_WEBHOOK_URL:'',AUTOMATION_WEBHOOK_SECRET:'',AUTOMATION_CALLBACK_SECRET:''}});
+  const args=loader==='require'?['--input-type=commonjs','-e',"require('./server.js')"]:['server.js'];
+  const child=spawn(process.execPath,args,{env:{...process.env,PORT:String(port),NODE_ENV:mode,APP_SECRET:'',SETUP_TOKEN:'',DB_HOST:'',DB_NAME:'',DB_USER:'',DB_PASSWORD:'',DB_DRIVER:'',SQLITE_PATH:path.join(dir,'unused.sqlite'),AUTOMATION_WEBHOOK_URL:'',AUTOMATION_WEBHOOK_SECRET:'',AUTOMATION_CALLBACK_SECRET:''}});
   try{
    await new Promise((resolve,reject)=>{let output='';child.stdout.on('data',c=>{output+=c;if(output.includes('listening on port'))resolve();});child.once('exit',()=>reject(Error('Server did not start')));setTimeout(()=>reject(Error('Startup timeout')),10000).unref();});
    assert.equal((await fetch(origin+'/')).status,200);
